@@ -1,7 +1,6 @@
 import re
-import requests, base64
+import requests
 import json
-from datetime import datetime
 
 from flask import Flask
 from flask import render_template
@@ -26,41 +25,63 @@ def voice():
 
 
 # SMS Request URL
-@app.route('/sms', methods=['POST'])
+@app.route('/sms', methods=['GET', 'POST'])
 def sms():
     response = twiml.Response()
     body = request.form['Body']
     metro_final = ''
+    output = 'Nothing was found.'
     if "everyblock" in body:
-        textinput = body.replace('everyblock','')
+        textinput = body.replace('everyblock ','')
+        metros = ['philly', 'denver', 'houston', 'boston', 'chicago']
+        #find which metro it is in
         if textinput.isdigit():
-        texttype = 'zipcodes'
-        for metro in metros:
-            everyblock_url = 'https://api.everyblock.com/content/%s/zipcodes'%metro
+            texttype = 'zipcodes'
+            for metro in metros:
+                everyblock_url = 'https://api.everyblock.com/content/%s/zipcodes'%metro
+                r = requests.get(everyblock_url, headers = {'Authorization' : 'Token fc51e71739c072154f4f8d58ed4f9ec0770aee76'})
+                return_data = json.loads(r.text)
+                for i in return_data:
+                    #print i
+                    if textinput == i['name']:
+                        #print textinput,'is in',metro
+                        metro_final = metro
+                        break
+        else:
+            texttype = 'neighborhoods'
+            for metro in metros:
+                everyblock_url = 'https://api.everyblock.com/content/%s/neighborhoods'%metro
+                #print 'trying: ',everyblock_url
+                r = requests.get(everyblock_url, headers = {'Authorization' : 'Token fc51e71739c072154f4f8d58ed4f9ec0770aee76'})
+                return_data = json.loads(r.text)
+                for i in return_data:
+                    if textinput.title() == i['name']:
+                        #print textinput,'is in',metro
+                        metro_final = metro
+                        textinput = textinput.replace(' ','-')
+                        break
+        #found the metro!
+        if metro_final != '':
+            everyblock_url = 'https://api.everyblock.com/content/%s/locations/%s/timeline/?schema=crime'%(metro_final, textinput)
             r = requests.get(everyblock_url, headers = {'Authorization' : 'Token fc51e71739c072154f4f8d58ed4f9ec0770aee76'})
             return_data = json.loads(r.text)
-            for i in return_data:
-                #print i
-                if textinput == i['name']:
-                    #print textinput,'is in',metro
-                    metro_final = metro
+            count = 0
+            output = ''
+            for event in return_data['results']:
+                date = event['pub_date']
+                #date in good format
+                date = date[5:7]+'/'+date[8:10]+'/'+date[2:4]
+                #time: use dispatch time
+                time = datetime.strptime(event['attributes']['dispatch_time'][:5], '%H:%M')
+                time = time.strftime('%I:%M %p')
+                output += event['title']+' on '+event['location_name']+' at '+date+', '+time+'. '
+                count += 1
+                if count == 2:
                     break
-                else:
-                    texttype = 'neighborhoods'
-                    for metro in metros:
-                        everyblock_url = 'https://api.everyblock.com/content/%s/neighborhoods'%metro
-                        #print 'trying: ',everyblock_url
-                        r = requests.get(everyblock_url, headers = {'Authorization' : 'Token fc51e71739c072154f4f8d58ed4f9ec0770aee76'})
-                        return_data = json.loads(r.text)
-                        for i in return_data:
-                            if textinput.title() == i['name']:
-                                #print textinput,'is in',metro
-                                metro_final = metro
-                                textinput = textinput.replace(' ','-')
-                                break
-        response.sms("You called 'Everyblock' API on: %s!"%textinput)
+        output = str(output)
+        response.sms(output)
     else:
-        response.sms("You did not call 'Everyblock' API.")
+        response.sms('Text "everyblock" and your zip code or town to get a feed!')
     return str(response)
 
 
